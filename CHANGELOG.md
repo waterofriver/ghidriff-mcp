@@ -33,7 +33,7 @@ Initial release.
 * Unit, protocol-level and opt-in integration tests (110 tests excluding the
   integration suite).
 * Bilingual documentation: an English README and a full 简体中文 translation
-  that link to each other, both including a real, trimmed tool-output example.
+  that link to each other.
 
 ### Security
 
