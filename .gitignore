@@ -1,0 +1,49 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local package-manager caches
+.uvcache/
+
+# Test / tooling caches
+.pytest_cache/
+.pytest-tmp/
+pytest-tmp*/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Local scratch space (fixtures, Ghidra projects, diff outputs)
+.scratch/
+work/
+runs/
+ghidriff-mcp-work/
+*.ghidriff
+*.ghidriff.md
+ghidriff.log
+symbols/
+gzfs/
+ghidra_projects/
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

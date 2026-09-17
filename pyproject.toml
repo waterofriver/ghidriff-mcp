@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ghidriff-mcp"
+version = "0.1.0"
+description = "MCP server that exposes the ghidriff Ghidra binary-diffing engine as tools for AI agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "waterofriver" }]
+keywords = [
+  "mcp",
+  "model-context-protocol",
+  "ghidra",
+  "ghidriff",
+  "reverse-engineering",
+  "binary-diffing",
+  "patch-analysis",
+  "vulnerability-research",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Software Development :: Disassemblers",
+]
+dependencies = ["mcp>=1.2.0,<2"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+ghidriff-mcp = "ghidriff_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/waterofriver/ghidriff-mcp"
+Repository = "https://github.com/waterofriver/ghidriff-mcp"
+Issues = "https://github.com/waterofriver/ghidriff-mcp/issues"
+Changelog = "https://github.com/waterofriver/ghidriff-mcp/blob/main/CHANGELOG.md"
+Upstream = "https://github.com/clearbluejar/ghidriff"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ghidriff_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning:ghidriff_mcp.*"]
+markers = [
+  "integration: requires a real Ghidra install plus ghidriff (set GHIDRIFF_MCP_INTEGRATION=1)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF"]
+ignore = ["E501"]
