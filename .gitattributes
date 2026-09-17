@@ -1,0 +1,17 @@
+# Keep every text file in the repository - and in the working tree - on LF, so
+# a Windows editor or a script writing Markdown cannot turn a one-line change
+# into a whole-file diff.
+* text=auto eol=lf
+
+# Binary-ish artefacts that must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.whl binary
+*.exe binary
+*.dll binary
