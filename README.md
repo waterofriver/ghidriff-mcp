@@ -4,23 +4,42 @@ An [MCP](https://modelcontextprotocol.io) server that exposes
 [ghidriff](https://github.com/clearbluejar/ghidriff) — the Ghidra binary diffing
 engine — as tools an AI agent can call.
 
-Point it at an old and a new build of a binary and it will drive Ghidra
-headlessly through ghidriff, then hand back structured results: match
-statistics, added/deleted/modified functions, per-function code diffs, and the
-generated Markdown report — as JSON, not as a screenful of console noise.
+Point it at an old and a new build of a binary and it drives Ghidra headlessly
+through ghidriff, then hands back structured results: match statistics,
+added/deleted/modified functions, per-function code diffs and the generated
+Markdown report — as JSON, not as a screenful of console noise.
 
 [![CI](https://github.com/waterofriver/ghidriff-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/waterofriver/ghidriff-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![MCP](https://img.shields.io/badge/MCP-server-6E56CF.svg)](https://modelcontextprotocol.io)
+
+**English** | [简体中文](README.zh-CN.md)
 
 ---
 
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Configuration](#configuration)
+- [Tools](#tools)
+- [Example session](#example-session)
+- [How it works](#how-it-works)
+- [Security and trust model](#security-and-trust-model)
+- [Troubleshooting](#troubleshooting)
+- [Compared with GhidraMCP](#compared-with-ghidramcp)
+- [Project layout](#project-layout)
+- [Development](#development)
+- [License](#license)
+
 ## Why this exists
 
-`ghidriff` is excellent but it is a **batch CLI**: you invoke it, wait minutes
-while Ghidra imports and analyses every input, and you get a Markdown report plus
-a large `pdiff` JSON on disk. That shape does not fit an agent loop, where you
-want to inspect a change, follow up on one function, and keep the reasoning in
+`ghidriff` is excellent but it is a **batch CLI**: you invoke it, wait while
+Ghidra imports and analyses every input, and you get a Markdown report plus a
+large `pdiff` JSON on disk. That shape does not fit an agent loop, where you want
+to inspect a change, follow up on one function, and keep the reasoning in
 context.
 
 This server closes that gap:
@@ -34,8 +53,10 @@ This server closes that gap:
 * **Late-bound environment.** The server does not need ghidriff or Ghidra in its
   own interpreter — it launches whichever interpreter or command you configure.
 * **Honest errors.** Ghidra's failure modes are translated into actionable
-  messages (missing `GHIDRA_INSTALL_DIR`, a project path Ghidra refuses, a JVM
-  out of memory, a missing `pyghidra`).
+  messages: missing `GHIDRA_INSTALL_DIR`, a project path Ghidra refuses, a JVM
+  out of memory, a missing `pyghidra`.
+* **A boundary you control.** The agent decides *what* to diff; you decide *how*
+  the engine runs. See [Security and trust model](#security-and-trust-model).
 
 ## Requirements
 
@@ -49,6 +70,9 @@ This server closes that gap:
 Ghidra and ghidriff do **not** have to live in the same interpreter as this
 server. If your MCP client runs the server from an isolated virtualenv, point
 `GHIDRIFF_MCP_PYTHON` at the interpreter that has ghidriff installed.
+
+Tested against ghidriff 1.0.0, Ghidra 12.1.3 and JDK 21 on Windows, and in CI on
+Ubuntu, macOS and Windows with Python 3.10 and 3.13.
 
 ## Install
 
@@ -70,13 +94,24 @@ Verify the tool chain with the built-in self check:
 ghidriff-mcp --check
 ```
 
-It prints a JSON diagnosis of Ghidra, Java and ghidriff (with next steps for
-anything missing) and exits non-zero when the setup is not usable yet. The same
-report is available to agents through the `ghidriff_environment` tool.
+It prints a JSON diagnosis of Ghidra, Java and ghidriff, with next steps for
+anything missing, and exits non-zero when the setup is not usable yet:
 
-On Windows, quoting the Ghidra path inside JSON config is the usual source of
-pain: double the backslashes (`C:\ghidra\ghidra_12.1.3_PUBLIC`) or use
-forward slashes.
+```jsonc
+// ghidriff-mcp --check (trimmed for length)
+{
+  "ready": true,
+  "checks": {
+    "ghidra": { "ok": true, "detail": "Ghidra 12.1.3 at C:\\ghidra\\ghidra_12.1.3_PUBLIC (found via GHIDRA_INSTALL_DIR)" },
+    "java": { "ok": true, "detail": "Java 21.0.12.1 (C:\\Program Files\\Microsoft\\jdk-21...\\bin\\java.exe)" },
+    "ghidriff": { "ok": true, "detail": "ghidriff 1.0.0 importable by C:\\Python313\\python.exe" }
+  },
+  "problems": [],
+  "next_steps": []
+}
+```
+
+The same report is available to agents through the `ghidriff_environment` tool.
 
 ## Configuration
 
@@ -108,7 +143,7 @@ Everything is environment driven.
       "command": "C:\\path\\to\\venv\\Scripts\\python.exe",
       "args": ["-m", "ghidriff_mcp"],
       "env": {
-        "GHIDRA_INSTALL_DIR": "C:\ghidra\ghidra_12.1.3_PUBLIC",
+        "GHIDRA_INSTALL_DIR": "C:\\ghidra\\ghidra_12.1.3_PUBLIC",
         "GHIDRIFF_MCP_PYTHON": "C:\\Python313\\python.exe",
         "GHIDRIFF_MCP_HOME": "C:\\ghidriff-work"
       }
@@ -123,11 +158,14 @@ HTTP transports are available for clients that prefer them:
 ghidriff-mcp --transport streamable-http --host 127.0.0.1 --port 8765
 ```
 
-Useful command-line flags: `--check` (self check, see above), `--workspace PATH`
-and `--ghidra-install-dir PATH` (override the matching environment variables for
-this process), `--version`.
+Command-line flags: `--check` (self check), `--workspace PATH` and
+`--ghidra-install-dir PATH` (override the matching environment variables for this
+process), `--transport`, `--host`, `--port`, `--version`.
 
 ## Tools
+
+Thirteen tools, all prefixed `ghidriff_` so an agent can tell them apart from
+other Ghidra-related servers.
 
 | Tool | What it does |
 | --- | --- |
@@ -145,28 +183,89 @@ this process), `--version`.
 | `ghidriff_search_functions` | Search changed functions by name. |
 | `ghidriff_settings` | Effective configuration and environment variables. |
 
-### Typical agent flow
+`ghidriff_start_diff` accepts `old_binary`, one or more `new_binaries`, the
+engine (`VersionTrackingDiff`, `SimpleDiff`, `StructualGraphDiff`), `output_dir`,
+`project_dir`, `summary`, `side_by_side`, `force_analysis`, `force_diff`, `bsim`,
+`bsim_full`, `min_func_len`, `max_section_funcs`, `base_address`, `no_symbols`
+and `timeout_s`. Raw engine pass-through is deliberately *not* on this list —
+that lives in `GHIDRIFF_MCP_EXTRA_ARGS`.
+
+## Example session
+
+An agent diffing two builds of an executable, from first call to a single
+function's code change. The JSON below is real output, trimmed for length.
 
 ```
 ghidriff_environment()
-  → ready: true, ghidriff 1.0.0, Ghidra 12.1.3, Java 21
+  → ready: true, ghidriff 1.0.0, Ghidra 12.1.3, Java 21.0.12.1
 
 ghidriff_start_diff(
-    old_binary="samples/app-1.0.exe",
-    new_binaries=["samples/app-1.1.exe"],
+    old_binary="fixtures/old.exe",
+    new_binaries=["fixtures/new.exe"],
     engine="VersionTrackingDiff")
-  → job_id: "20260917-133102-a1b2"
-
-ghidriff_job_status(job_id="20260917-133102-a1b2")     # poll until terminal
-ghidriff_job_result(job_id="20260917-133102-a1b2")
-  → stats: 130 matched / 3 modified / 0 added / 0 deleted
-
-ghidriff_function_detail(job_id="20260917-133102-a1b2", name="entry")
-  → the unified diff of the changed function
-
-ghidriff_search_functions(job_id="20260917-133102-a1b2", query="crypt")
-ghidriff_read_report(job_id="20260917-133102-a1b2", start_line=1, max_lines=150)
+  → job_id: "20260917-214305-24c6", status: "queued"
 ```
+
+```jsonc
+// ghidriff_job_result(job_id="20260917-214305-24c6")
+{
+  "job_id": "20260917-214305-24c6",
+  "status": "succeeded",
+  "returncode": 0,
+  "duration_s": 11.6,
+  "summary": {
+    "old": {
+      "Program Name": "old.exe",
+      "# of Functions": "65",
+      "Language ID": "x86:LE:64:default (4.8)"
+    },
+    "new": {
+      "Program Name": "new.exe",
+      "# of Functions": "65",
+      "Language ID": "x86:LE:64:default (4.8)"
+    },
+    "stats": {
+      "total_funcs_len": 130,
+      "matched_funcs_len": 130,
+      "modified_funcs_len": 3,
+      "added_funcs_len": 0,
+      "deleted_funcs_len": 0,
+      "func_match_overall_percent": "100.0000%",
+      "match_func_similarity_percent": "97.6923%"
+    },
+    "function_counts": { "added": 0, "deleted": 0, "modified": 3 },
+    "function_names": {
+      "added": [],
+      "deleted": [],
+      "modified": ["entry", "__security_init_cookie", "__wmainCRTStartup"]
+    },
+    "strings": { "added": 0, "deleted": 0 }
+  },
+  "artifacts": [{
+    "output_dir": "...\\runs\\20260917-214305-24c6\\ghidriff",
+    "name": "old.exe-new.exe.ghidriff",
+    "markdown_report": "...\\old.exe-new.exe.ghidriff.md",
+    "pdiff_json": "...\\json\\old.exe-new.exe.ghidriff.json",
+    "matches_json": "...\\json\\old.exe-new.exe.ghidriff.matches.json",
+    "ghidriff_log": "...\\ghidriff.log"
+  }]
+}
+```
+
+```jsonc
+// ghidriff_function_detail(job_id="...", name="entry")
+{
+  "kind": "modified",
+  "matched_by": "exact",
+  "ratio": 0.57,
+  "diff_type": ["code", "length", "called"],
+  "code_diff": "--- entry\n+++ entry\n@@ -1,9 +1,11 @@\n \n void entry(void)\n \n {\n-  __security_init_cookie();\n-  __wmainCRTStartup();\n+  code *pcVar1;\n+  \n+  pcVar1 = (code *)swi(3);\n+  (*pcVar1)();\n   return;\n }\n"
+}
+```
+
+Then follow up with `ghidriff_search_functions(query="crypt")` to find related
+changes, or `ghidriff_read_report(start_line=1, max_lines=150)` to page through
+the rendered report.
 
 Pass several newer binaries to get chained diffs (`old → v2 → v3`), and set
 `summary=true` to also diff `old → newest`. Use `side_by_side=true` if you want
@@ -183,12 +282,14 @@ MCP client ──stdio──▶ ghidriff-mcp ──subprocess──▶ ghidriff 
                                (structured summaries, paged reads)
 ```
 
-* The server never imports ghidriff, so a JVM crash cannot take it down and
+* The server never imports ghidriff, so a JVM crash cannot take it down, and
   cancelling a job is a single `kill`.
-* One run directory per job: `<workspace>/runs/<job_id>/` containing
-  `job.json`, `ghidriff.log`, `ghidriff/` (output) and `ghidra_projects/`.
-* `pdiff` JSON files are parsed lazily and cached by mtime; a diff of a large
-  binary can easily be tens of megabytes.
+* One run directory per job: `<workspace>/runs/<job_id>/` containing `job.json`,
+  `ghidriff.log`, `ghidriff/` (output) and `ghidra_projects/`.
+* Child output is redirected into the log file through an inherited handle
+  rather than a pipe, which keeps it streamable and works in environments where
+  pipes are restricted.
+* `pdiff` JSON files are parsed lazily, capped in size and cached by mtime.
 * Relative paths in tool calls resolve against the workspace, so an agent never
   has to know the absolute layout of the machine.
 
@@ -203,10 +304,8 @@ it at. Before wiring it to an agent, know what it does and does not constrain:
 * **The agent picks the target, you pick the engine.** Tool arguments select
   which binaries to diff, which supported engine to use, and how much output to
   render. They cannot select the executable, its JVM arguments, or arbitrary
-  extra CLI switches: raw pass-through lives in the operator's environment
-  (`GHIDRIFF_MCP_EXTRA_ARGS`), not in the tool surface. That matters, because
-  `--jvm-args -javaagent:...` would otherwise be a code-execution primitive one
-  model decision away.
+  extra CLI switches. That matters, because `--jvm-args -javaagent:...` would
+  otherwise be a code-execution primitive one model decision away.
 * **Option-like file names are neutralised.** Binaries are passed after a `--`
   separator, so a file named `--force-analysis` stays a file.
 * **Binaries are untrusted input.** Strings, symbol names, decompiled code and
@@ -241,24 +340,42 @@ the thing to review — and delete — when you are done.
 | `No module named ghidriff` | The launched interpreter lacks ghidriff: set `GHIDRIFF_MCP_PYTHON` or `GHIDRIFF_MCP_COMMAND`. |
 | `No module named 'pyghidra'` | Install ghidriff with its dependencies (`pip install ghidriff`), not just the CLI. |
 | First diff takes minutes | Expected: Ghidra imports and analyses every binary once. Later diffs reuse the Ghidra project unless `force_analysis=true`. |
+| `Symbols are disabled, but the symbol is already downloaded` | You passed `no_symbols=true` for a binary whose PDB is already in the symbol store. Delete it or drop the flag. |
 | `OutOfMemoryError` | Lower `max_ram_percent`, or diff smaller binaries. |
 | Job stuck in `queued` | Another job holds a slot; `GHIDRIFF_MCP_MAX_JOBS` limits concurrent JVMs. |
 | `ghidriff exited 0 but no diff artefacts` | The output directory was overridden, e.g. by `GHIDRIFF_MCP_EXTRA_ARGS`; check `ghidriff_job_log`. |
+| `above the 512 MB parse limit` | The pdiff is too large to parse safely. Page through the Markdown report with `ghidriff_read_report` instead. |
+| `ghidriff_environment` is slow the first time | It starts the configured interpreter next to a possibly running JVM; the probe has a 120s budget and reports a timeout rather than hanging. |
 
-### Relationship to GhidraMCP
+## Compared with GhidraMCP
 
 [GhidraMCP](https://github.com/LaurieWired/GhidraMCP) bridges a **running Ghidra
 GUI** to an agent: interactive decompilation, renaming, commenting. This server
 does the opposite job: **batch, headless diffing between two builds**, with no
-GUI and no open project. They complement each other; tool names here are
-prefixed `ghidriff_` so an agent can use both at once.
+GUI and no open project. They complement each other, and the `ghidriff_` prefix
+means an agent can use both at once.
+
+## Project layout
+
+```
+src/ghidriff_mcp/
+  server.py      FastMCP tool surface and CLI entry point
+  runner.py      ghidriff command construction and subprocess execution
+  jobs.py        background job state machine, job.json persistence
+  reports.py     pdiff / Markdown parsing, paging, size limits
+  ghidra_env.py  Ghidra, Java and ghidriff discovery and diagnosis
+  paths.py       workspace path resolution and Ghidra path rules
+  config.py      environment-driven settings
+tests/           unit, protocol-level and opt-in integration tests
+```
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest                       # unit + MCP protocol tests, no Ghidra needed
+pytest                       # 110 tests, no Ghidra needed
 ruff check src tests
+ruff format --check src tests
 ```
 
 The Ghidra-dependent test is opt-in:
@@ -267,44 +384,9 @@ The Ghidra-dependent test is opt-in:
 GHIDRIFF_MCP_INTEGRATION=1 GHIDRA_INSTALL_DIR=/path/to/ghidra pytest -m integration
 ```
 
-It diffs two generated PE files (a pristine copy of a system binary and one with
-a patched entry point) and asserts that at least one function is reported as
+It generates a pair of PE files (a pristine copy of a system binary and one whose
+entry point is patched) and asserts that at least one function is reported as
 modified.
-
-## 中文快速开始
-
-```bash
-pip install ghidriff-mcp
-```
-
-在 MCP 客户端里配置（注意 Windows 路径里的反斜杠要写成 `\\`）：
-
-```json
-{
-  "mcpServers": {
-    "ghidriff": {
-      "command": "python",
-      "args": ["-m", "ghidriff_mcp"],
-      "env": {
-        "GHIDRA_INSTALL_DIR": "C:\ghidra\ghidra_12.1.3_PUBLIC",
-        "GHIDRIFF_MCP_PYTHON": "C:\\Python313\\python.exe",
-        "GHIDRIFF_MCP_HOME": "C:\\ghidriff-work"
-      }
-    }
-  }
-}
-```
-
-要点：
-
-1. `GHIDRA_INSTALL_DIR` 指向解压后的 Ghidra 目录（含 `support/` 子目录那个）。
-2. `GHIDRIFF_MCP_HOME` **不能包含以 `.` 开头的路径段**（如 `.scratch`），否则
-   Ghidra 会拒绝创建工程。
-3. 先调用 `ghidriff_environment` 自检，再用 `ghidriff_start_diff` 起任务，轮询
-   `ghidriff_job_status`，最后用 `ghidriff_job_result` / `ghidriff_function_detail`
-   读取结构化结果。
-4. 每个任务独占一个目录 `<workspace>/runs/<job_id>/`，里面同时保留
-   `ghidriff.log` 和 ghidriff 原始输出，排查问题很方便。
 
 ## License
 
