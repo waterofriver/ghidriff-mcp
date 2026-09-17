@@ -152,6 +152,7 @@ def java_version(java: str | None, *, timeout: float = 20.0) -> str | None:
             text=True,
             timeout=timeout,
             check=False,
+            stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -160,47 +161,104 @@ def java_version(java: str | None, *, timeout: float = 20.0) -> str | None:
     return match.group(1) if match else None
 
 
-def _probe_ghidriff(settings: Settings, *, timeout: float = 60.0) -> ToolReport:
-    """Ask the *runner* interpreter whether it can import ghidriff."""
-    script = (
-        "import json,importlib.metadata as m\n"
-        "print(json.dumps({'version': m.version('ghidriff')}))\n"
-    )
-    command = _runner_command(settings, ["-c", script])
-    try:
-        proc = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
-    except FileNotFoundError:
-        return ToolReport("ghidriff", False, f"interpreter not found: {command[0]}")
-    except subprocess.SubprocessError as exc:  # pragma: no cover - environment specific
-        return ToolReport("ghidriff", False, f"probe failed: {exc}")
+def _last_line(text: str) -> str:
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return lines[-1] if lines else "no output"
 
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
-        tail = detail[-1] if detail else "unknown error"
+
+def _probe_ghidriff(settings: Settings, *, timeout: float = 120.0) -> ToolReport:
+    """Check that ghidriff is runnable and, when possible, report its version.
+
+    With an explicit ``GHIDRIFF_MCP_COMMAND`` the only safe check is running it
+    (``--help``) and looking at what comes back. Otherwise the configured
+    interpreter is asked to import ghidriff directly, which is the question that
+    actually matters at diff time.
+
+    The timeout is generous on purpose: this starts an interpreter that may be
+    busy loading a large site-packages tree next to a running Ghidra JVM.
+
+    Every probe gets ``stdin=DEVNULL``: a child of an MCP stdio server must never
+    be able to read the protocol stream, and it must not hold that handle open
+    either.
+    """
+    if settings.ghidriff_command:
+        command = [*settings.ghidriff_command, "--help"]
+        try:
+            proc = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                stdin=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            return ToolReport(
+                "ghidriff", False, f"command not found: {command[0]}", {"command": command}
+            )
+        except subprocess.TimeoutExpired:
+            return ToolReport(
+                "ghidriff",
+                False,
+                f"'{' '.join(command)}' did not answer within {timeout:.0f}s; "
+                "the machine may be busy, re-run the check.",
+                {"command": command},
+            )
+        except subprocess.SubprocessError as exc:  # pragma: no cover - environment specific
+            return ToolReport("ghidriff", False, f"probe failed: {exc}", {"command": command})
+
+        output = f"{proc.stdout}\n{proc.stderr}"
+        ok = proc.returncode == 0 and "ghidriff" in output.lower()
+        detail = (
+            f"custom command works: {' '.join(settings.ghidriff_command)}"
+            if ok
+            else f"custom command failed (exit {proc.returncode}): {_last_line(output)}"
+        )
+        return ToolReport("ghidriff", ok, detail, {"command": command})
+
+    script = "import importlib.metadata as m; print(m.version('ghidriff'))"
+    interpreter = settings.interpreter
+    command = [interpreter, "-c", script]
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        return ToolReport(
+            "ghidriff", False, f"interpreter not found: {interpreter}", {"command": command}
+        )
+    except subprocess.TimeoutExpired:
         return ToolReport(
             "ghidriff",
             False,
-            f"not importable by {command[0]}: {tail}",
+            f"{interpreter} did not answer within {timeout:.0f}s; it may be busy or "
+            "loading a very large environment. Re-run the check.",
             {"command": command},
         )
-    import json
+    except subprocess.SubprocessError as exc:  # pragma: no cover - environment specific
+        return ToolReport("ghidriff", False, f"probe failed: {exc}", {"command": command})
 
-    try:
-        payload = json.loads(proc.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        payload = {}
+    if proc.returncode != 0:
+        tail = _last_line(proc.stderr) if proc.stderr.strip() else _last_line(proc.stdout)
+        return ToolReport(
+            "ghidriff",
+            False,
+            f"ghidriff is not importable by {interpreter}: {tail}",
+            {"command": command},
+        )
+
+    version = _last_line(proc.stdout)
     return ToolReport(
         "ghidriff",
         True,
-        f"ghidriff {payload.get('version', '?')} importable by {command[0]}",
-        {"version": payload.get("version"), "command": command},
+        f"ghidriff {version} importable by {interpreter}",
+        {"version": version, "command": command},
     )
-
-
-def _runner_command(settings: Settings, tail: list[str]) -> list[str]:
-    if settings.ghidriff_command:
-        return [*settings.ghidriff_command, *tail]
-    return [settings.interpreter, "-m", "ghidriff", *tail]
 
 
 def diagnose(

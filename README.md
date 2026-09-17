@@ -64,11 +64,15 @@ cd ghidriff-mcp
 pip install -e .
 ```
 
-Verify the tool chain:
+Verify the tool chain with the built-in self check:
 
 ```bash
-python -c "import asyncio, json; from ghidriff_mcp.server import ghidriff_environment as t; print(json.dumps(asyncio.run(t()), indent=2))"
+ghidriff-mcp --check
 ```
+
+It prints a JSON diagnosis of Ghidra, Java and ghidriff (with next steps for
+anything missing) and exits non-zero when the setup is not usable yet. The same
+report is available to agents through the `ghidriff_environment` tool.
 
 On Windows, quoting the Ghidra path inside JSON config is the usual source of
 pain: double the backslashes (`D:\\tools\\ghidra\\ghidra_12.1.3_PUBLIC`) or use
@@ -118,6 +122,10 @@ HTTP transports are available for clients that prefer them:
 ```bash
 ghidriff-mcp --transport streamable-http --host 127.0.0.1 --port 8765
 ```
+
+Useful command-line flags: `--check` (self check, see above), `--workspace PATH`
+and `--ghidra-install-dir PATH` (override the matching environment variables for
+this process), `--version`.
 
 ## Tools
 

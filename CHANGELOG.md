@@ -22,7 +22,8 @@ Initial release.
 * Paged reads of the generated Markdown report and of raw job logs, so large
   diffs never have to be dumped into an agent's context at once.
 * Environment discovery and diagnosis (`ghidriff_environment`) for Ghidra, Java
-  and ghidriff, including actionable next steps.
+  and ghidriff, including actionable next steps, plus the same report from the
+  command line via `ghidriff-mcp --check`.
 * Automatic translation of common ghidriff/Ghidra failures (missing
   `GHIDRA_INSTALL_DIR`, Ghidra's dot-directory project rule, JVM out-of-memory,
   missing `pyghidra`) into readable errors.

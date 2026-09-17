@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 from dataclasses import dataclass, field
@@ -637,6 +638,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1", help="Bind address for HTTP transports.")
     parser.add_argument("--port", type=int, default=8765, help="Port for HTTP transports.")
     parser.add_argument("--version", action="store_true", help="Print the version and exit.")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "Diagnose the Ghidra/Java/ghidriff tool chain, print the report as JSON "
+            "and exit non-zero when it is not ready."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -655,6 +664,12 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["GHIDRA_INSTALL_DIR"] = str(Path(args.ghidra_install_dir).expanduser().resolve())
 
     state = reset_state()
+
+    if args.check:
+        report = diagnose(state.settings)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0 if report["ready"] else 1
+
     warning = _ensure_workspace(state.settings.workspace)
     if warning:
         # Never fatal: the server stays usable for discovery and diagnostics.
