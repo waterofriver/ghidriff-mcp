@@ -315,7 +315,7 @@ def _next_steps(checks: dict[str, object]) -> list[str]:
     if not checks["ghidra"].get("ok"):
         steps.append(
             "Download Ghidra and set GHIDRA_INSTALL_DIR to the extracted folder, "
-            "e.g. GHIDRA_INSTALL_DIR=D:\\\\tools\\\\ghidra\\\\ghidra_12.1.3_PUBLIC"
+            "e.g. GHIDRA_INSTALL_DIR=C:\\\\ghidra\\\\ghidra_12.1.3_PUBLIC"
         )
     if not checks["java"].get("ok"):
         steps.append("Install a JDK 21+ and either set JAVA_HOME or put java on PATH.")

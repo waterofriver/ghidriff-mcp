@@ -85,6 +85,18 @@ def test_load_pdiff_rejects_wrong_files(sample_output_dir: Path, tmp_path: Path)
         load_pdiff(not_pdiff)
 
 
+def test_load_pdiff_refuses_oversized_files(tmp_path: Path, sample_pdiff: dict) -> None:
+    """A pdiff is attacker-influenced input; parsing must be size bounded."""
+    path = tmp_path / "big.ghidriff.json"
+    path.write_text(json.dumps(sample_pdiff), encoding="utf-8")
+
+    with pytest.raises(ReportError, match=r"above the .* MB parse limit"):
+        load_pdiff(path, max_bytes=10)
+
+    # The same file loads fine under a limit that fits it.
+    assert load_pdiff(path, max_bytes=10 * 1024 * 1024)["functions"]
+
+
 def test_summarize_pdiff(sample_pdiff: dict, sample_output_dir: Path) -> None:
     artifacts = latest_artifacts(sample_output_dir)
     summary = summarize_pdiff(sample_pdiff, max_names=10, artifacts=artifacts)

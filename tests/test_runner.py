@@ -116,7 +116,7 @@ def test_normalize_engine_rejects_unknown() -> None:
         normalize_engine("MagicDiff")
 
 
-def test_command_uses_absolute_paths_and_module_invocation(
+def test_command_puts_binaries_after_a_separator(
     ghidra_settings: Settings, fake_binaries: tuple[Path, Path]
 ) -> None:
     old, new = fake_binaries
@@ -124,14 +124,52 @@ def test_command_uses_absolute_paths_and_module_invocation(
     command = build_command(ghidra_settings, request)
 
     assert command[:3] == ["python-x", "-m", "ghidriff"]
-    assert str(request.old) in command
-    assert str(request.new[0]) in command
+    separator = command.index("--")
+    assert command[separator + 1 :] == [str(request.old), str(request.new[0])]
+    assert command.index("-o") < separator
     assert command[command.index("-o") + 1] == str(request.output_dir)
     assert command[command.index("-p") + 1] == str(request.project_dir)
     assert "--engine" in command
     assert "--threaded" in command
     # No bare --summary: upstream declares it as a value-taking option.
     assert "--summary" not in command
+
+
+def test_option_like_filenames_cannot_inject_flags(
+    ghidra_settings: Settings, tmp_path: Path
+) -> None:
+    """A binary called ``--force-analysis`` must stay a positional argument."""
+    bins = tmp_path / "bins"
+    bins.mkdir()
+    old = bins / "old.exe"
+    old.write_bytes(b"MZ")
+    new = bins / "--force-analysis"
+    new.write_bytes(b"MZ")
+
+    request = build_request(
+        ghidra_settings,
+        old_binary=str(old),
+        new_binaries=[str(new)],
+        run_dir=ghidra_settings.workspace / "runs" / "j",
+    )
+    command = build_command(ghidra_settings, request)
+
+    separator = command.index("--")
+    assert command[separator + 1 :] == [str(request.old), str(new.resolve())]
+    assert "--force-analysis" not in command[:separator]
+
+
+def test_operator_extra_args_stay_on_the_option_side(
+    ghidra_settings: Settings, fake_binaries: tuple[Path, Path]
+) -> None:
+    old, new = fake_binaries
+    request = _request(ghidra_settings, old, new, ghidra_settings.workspace / "runs" / "j")
+    request = request.with_updates(extra_args=("--jvm-args", "-Xmx1g"))
+    command = build_command(ghidra_settings, request)
+
+    separator = command.index("--")
+    assert command.index("--jvm-args") < separator
+    assert command[separator + 1 :] == [str(request.old), str(request.new[0])]
 
 
 def test_summary_flag_is_passed_a_value(
@@ -180,7 +218,8 @@ def test_boolean_and_value_options(
     assert command[command.index("--max-ram-percent") + 1] == "40.0"
     assert command[command.index("--ba") + 1] == "0x2000"
     assert command[command.index("--md-title") + 1] == "my diff"
-    assert command[-2:] == ["--gdt", "file.gdt"]
+    separator = command.index("--")
+    assert command[separator - 2 : separator] == ["--gdt", "file.gdt"]
 
 
 def test_explicit_command_overrides_interpreter(

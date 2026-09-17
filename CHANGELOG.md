@@ -30,8 +30,24 @@ Initial release.
 * Guard against Ghidra's `Path element starting with '.' is not permitted`
   rejection: unsafe project locations fall back to a sanitised directory and
   raise a warning instead of failing after a lengthy import.
-* Unit, protocol-level and opt-in integration tests (85 tests before the
+* Unit, protocol-level and opt-in integration tests (110 tests excluding the
   integration suite).
+
+### Security
+
+* Raw engine pass-through is deliberately absent from the tool surface: an agent
+  can choose the binaries and the engine, but not the executable, its JVM
+  arguments or arbitrary CLI switches. Those stay in the operator's environment
+  (`GHIDRIFF_MCP_EXTRA_ARGS`), which keeps `--jvm-args -javaagent:...` (arbitrary
+  code in the analysis JVM) out of reach of a model decision.
+* Binaries are passed after a `--` separator, so a file named like an option
+  cannot inject one.
+* `no_symbols` is exposed on the diff tools, so an offline run is one argument
+  away: ghidriff otherwise allows PDB lookups against symbol servers such as
+  Microsoft's.
+* README documents the trust model: no shell, unconfined file access, untrusted
+  binary content flowing into the model's context, and unauthenticated HTTP
+  transports.
 
 [Unreleased]: https://github.com/waterofriver/ghidriff-mcp/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/waterofriver/ghidriff-mcp/releases/tag/v0.1.0

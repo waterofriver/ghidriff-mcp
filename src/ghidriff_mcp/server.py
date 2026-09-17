@@ -57,6 +57,10 @@ because Ghidra imports and analyses every input. Pass several newer binaries to
 get the chained diffs old->v2->v3, and set summary=true to also diff old->newest.
 """
 
+#: Parsed pdiffs above this size are not kept in memory (they are re-read on demand).
+CACHE_MAX_BYTES = 64 * 1024 * 1024
+CACHE_MAX_ENTRIES = 3
+
 
 @dataclass
 class ServerState:
@@ -66,17 +70,25 @@ class ServerState:
     _cache: dict[str, tuple[float, dict[str, Any]]] = field(default_factory=dict)
 
     def cached_pdiff(self, path: Path) -> dict[str, Any]:
-        """Load a pdiff with a tiny mtime-keyed cache (real ones are huge)."""
+        """Load a pdiff, caching the small ones.
+
+        Real pdiffs are large and there is no reason to hold several of them in
+        memory, so only diffs below ``CACHE_MAX_BYTES`` are kept.
+        """
         key = str(path)
         try:
-            mtime = path.stat().st_mtime
+            stat = path.stat()
         except OSError as exc:
             raise ReportError(f"pdiff not found: {path}") from exc
+        mtime = stat.st_mtime
         hit = self._cache.get(key)
         if hit is not None and hit[0] == mtime:
             return hit[1]
         pdiff = load_pdiff(path)
-        if len(self._cache) >= 3:
+        if stat.st_size > CACHE_MAX_BYTES:
+            self._cache.pop(key, None)
+            return pdiff
+        while len(self._cache) >= CACHE_MAX_ENTRIES:
             self._cache.pop(next(iter(self._cache)))
         self._cache[key] = (mtime, pdiff)
         return pdiff
@@ -251,15 +263,26 @@ async def ghidriff_start_diff(
     base_address: Annotated[
         str | None, Field(description="Base address for both programs, e.g. '0x2000'.")
     ] = None,
+    no_symbols: Annotated[
+        bool,
+        Field(
+            description=(
+                "Turn symbols off for analysis. Use it for offline/air-gapped work: "
+                "ghidriff otherwise queries PDB symbol servers such as Microsoft's."
+            )
+        ),
+    ] = False,
     timeout_s: Annotated[
         float | None,
         Field(description="Kill the run after this many seconds (default: server setting, 3600)."),
     ] = None,
-    extra_args: Annotated[
-        list[str] | None, Field(description="Extra raw ghidriff CLI arguments appended verbatim.")
-    ] = None,
 ) -> dict[str, Any]:
-    """Start a binary diff in the background and return a job id immediately."""
+    """Start a binary diff in the background and return a job id immediately.
+
+    Raw engine pass-through arguments are deliberately not accepted here: the
+    agent decides *what* to diff, the operator decides *how* the engine runs,
+    through GHIDRIFF_MCP_EXTRA_ARGS.
+    """
     state = get_state()
     job_id, run_dir = state.jobs.reserve()
     request = _start_request(
@@ -280,8 +303,8 @@ async def ghidriff_start_diff(
             "min_func_len": min_func_len,
             "max_section_funcs": max_section_funcs,
             "base_address": base_address,
+            "no_symbols": no_symbols,
             "timeout_s": timeout_s,
-            "extra_args": tuple(extra_args or ()),
         },
     )
     # The job id creates the run directory, so the request is resolved first and
@@ -321,6 +344,15 @@ async def ghidriff_run_diff(
     force_diff: Annotated[
         bool, Field(description="Diff even when architecture or symbols do not match.")
     ] = False,
+    no_symbols: Annotated[
+        bool,
+        Field(
+            description=(
+                "Turn symbols off for analysis. Use it for offline/air-gapped work: "
+                "ghidriff otherwise queries PDB symbol servers such as Microsoft's."
+            )
+        ),
+    ] = False,
     timeout_s: Annotated[
         float | None,
         Field(description="Overall budget in seconds (default: server setting, 3600)."),
@@ -340,6 +372,7 @@ async def ghidriff_run_diff(
         summary=summary,
         force_analysis=force_analysis,
         force_diff=force_diff,
+        no_symbols=no_symbols,
         timeout_s=timeout_s,
     )
     job_id = started["job_id"]

@@ -75,7 +75,7 @@ anything missing) and exits non-zero when the setup is not usable yet. The same
 report is available to agents through the `ghidriff_environment` tool.
 
 On Windows, quoting the Ghidra path inside JSON config is the usual source of
-pain: double the backslashes (`D:\\tools\\ghidra\\ghidra_12.1.3_PUBLIC`) or use
+pain: double the backslashes (`C:\ghidra\ghidra_12.1.3_PUBLIC`) or use
 forward slashes.
 
 ## Configuration
@@ -90,7 +90,7 @@ Everything is environment driven.
 | `GHIDRIFF_MCP_COMMAND` | — | Explicit ghidriff command line, e.g. `ghidriff --max-ram-percent 40`. Takes precedence over `GHIDRIFF_MCP_PYTHON`. |
 | `GHIDRIFF_MCP_TIMEOUT` | `3600` | Default per-run timeout in seconds. |
 | `GHIDRIFF_MCP_MAX_JOBS` | `2` | Maximum concurrent diffs (each one boots a JVM). |
-| `GHIDRIFF_MCP_EXTRA_ARGS` | — | Extra raw ghidriff arguments appended to every run. |
+| `GHIDRIFF_MCP_EXTRA_ARGS` | — | Raw ghidriff arguments appended to every run. Operator-only: this is where `--no-symbols` or `--jvm-args` belong, not in tool calls. |
 | `GHIDRIFF_MCP_LOG_LEVEL` | `INFO` | ghidriff log level (`DEBUG` is very verbose). |
 
 > **Ghidra path rule.** Ghidra refuses a project location containing a path
@@ -108,7 +108,7 @@ Everything is environment driven.
       "command": "C:\\path\\to\\venv\\Scripts\\python.exe",
       "args": ["-m", "ghidriff_mcp"],
       "env": {
-        "GHIDRA_INSTALL_DIR": "D:\\tools\\ghidra\\ghidra_12.1.3_PUBLIC",
+        "GHIDRA_INSTALL_DIR": "C:\ghidra\ghidra_12.1.3_PUBLIC",
         "GHIDRIFF_MCP_PYTHON": "C:\\Python313\\python.exe",
         "GHIDRIFF_MCP_HOME": "C:\\ghidriff-work"
       }
@@ -192,6 +192,46 @@ MCP client ──stdio──▶ ghidriff-mcp ──subprocess──▶ ghidriff 
 * Relative paths in tool calls resolve against the workspace, so an agent never
   has to know the absolute layout of the machine.
 
+## Security and trust model
+
+This server drives ghidriff locally with your own privileges on files you point
+it at. Before wiring it to an agent, know what it does and does not constrain:
+
+* **No shell.** Every command is an argv list built by the server and passed to
+  `exec`-style process creation. Nothing is interpolated into a shell string, so
+  file names and option values cannot become shell syntax.
+* **The agent picks the target, you pick the engine.** Tool arguments select
+  which binaries to diff, which supported engine to use, and how much output to
+  render. They cannot select the executable, its JVM arguments, or arbitrary
+  extra CLI switches: raw pass-through lives in the operator's environment
+  (`GHIDRIFF_MCP_EXTRA_ARGS`), not in the tool surface. That matters, because
+  `--jvm-args -javaagent:...` would otherwise be a code-execution primitive one
+  model decision away.
+* **Option-like file names are neutralised.** Binaries are passed after a `--`
+  separator, so a file named `--force-analysis` stays a file.
+* **Binaries are untrusted input.** Strings, symbol names, decompiled code and
+  report text from a sample end up in the model's context. Treat all of it as
+  data, never as instructions: a crafted binary can try to talk your agent into
+  something. The same holds for anything else you feed the model.
+* **Symbol lookups reach the network by default.** ghidriff lets Ghidra resolve
+  PDBs, and for PE files with PDB metadata that can mean a query to a symbol
+  server (Microsoft's among them), which leaks a little about what you are
+  analysing. Pass `no_symbols=true`, or set
+  `GHIDRIFF_MCP_EXTRA_ARGS=--no-symbols`, for offline work.
+* **File access is not confined.** The server reads and writes wherever you
+  point it, because binaries normally live outside the workspace. Use a
+  dedicated workspace and do not hand an agent paths to files you would not want
+  in a transcript.
+* **Transports.** stdio by default. The HTTP transports bind to `127.0.0.1`
+  unless you pass `--host`, and they carry no authentication — treat a
+  non-loopback bind as exposing the server to that network.
+* **External tooling is the real attack surface.** Ghidra parsing a hostile file
+  is a much bigger risk than this wrapper. Keep ghidriff and Ghidra current, and
+  run samples in a VM you can throw away.
+
+Everything a run produces lives under `GHIDRIFF_MCP_HOME`, so that directory is
+the thing to review — and delete — when you are done.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -203,7 +243,7 @@ MCP client ──stdio──▶ ghidriff-mcp ──subprocess──▶ ghidriff 
 | First diff takes minutes | Expected: Ghidra imports and analyses every binary once. Later diffs reuse the Ghidra project unless `force_analysis=true`. |
 | `OutOfMemoryError` | Lower `max_ram_percent`, or diff smaller binaries. |
 | Job stuck in `queued` | Another job holds a slot; `GHIDRIFF_MCP_MAX_JOBS` limits concurrent JVMs. |
-| `ghidriff exited 0 but no diff artefacts` | The output directory was overridden by `extra_args`; check `ghidriff_job_log`. |
+| `ghidriff exited 0 but no diff artefacts` | The output directory was overridden, e.g. by `GHIDRIFF_MCP_EXTRA_ARGS`; check `ghidriff_job_log`. |
 
 ### Relationship to GhidraMCP
 
@@ -246,7 +286,7 @@ pip install ghidriff-mcp
       "command": "python",
       "args": ["-m", "ghidriff_mcp"],
       "env": {
-        "GHIDRA_INSTALL_DIR": "D:\\tools\\ghidra\\ghidra_12.1.3_PUBLIC",
+        "GHIDRA_INSTALL_DIR": "C:\ghidra\ghidra_12.1.3_PUBLIC",
         "GHIDRIFF_MCP_PYTHON": "C:\\Python313\\python.exe",
         "GHIDRIFF_MCP_HOME": "C:\\ghidriff-work"
       }

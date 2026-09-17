@@ -258,14 +258,17 @@ def build_request(
 
 
 def build_command(settings: Settings, request: DiffRequest) -> list[str]:
-    """Translate a request into an argv list for ghidriff."""
+    """Translate a request into an argv list for ghidriff.
+
+    Options come first and the binaries last, after a ``--`` separator: a file
+    whose name begins with ``-`` (``--force-analysis``, ``--no-symbols``, ...)
+    must never be mistaken for a ghidriff option. ``extra_args`` are operator
+    supplied and stay on the option side of the separator.
+    """
     if settings.ghidriff_command:
         command = list(settings.ghidriff_command)
     else:
         command = [settings.interpreter, "-m", "ghidriff"]
-
-    command.append(str(request.old))
-    command.extend(str(path) for path in request.new)
 
     # Absolute paths only: Ghidra rejects project locations containing a path
     # element that starts with '.', and ghidriff resolves the project/symbols/gzfs
@@ -315,6 +318,10 @@ def build_command(settings: Settings, request: DiffRequest) -> list[str]:
         command += ["-g", str(request.gzfs_dir)]
 
     command.extend(request.extra_args)
+
+    command.append("--")
+    command.append(str(request.old))
+    command.extend(str(path) for path in request.new)
     return command
 
 

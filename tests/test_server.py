@@ -41,6 +41,20 @@ async def call(name: str, arguments: dict[str, Any]) -> Any:
         return await session.call_tool(name, arguments)
 
 
+def test_pdiff_cache_respects_its_size_limit(
+    state, sample_output_dir, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = next(sample_output_dir.glob("json/*.ghidriff.json"))
+
+    assert state.cached_pdiff(path)["functions"]
+    assert str(path) in state._cache
+
+    state._cache.clear()
+    monkeypatch.setattr(server_module, "CACHE_MAX_BYTES", 1)
+    assert state.cached_pdiff(path)["functions"]
+    assert state._cache == {}
+
+
 async def test_all_tools_are_registered_with_the_ghidriff_prefix() -> None:
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         tools = (await session.list_tools()).tools
@@ -64,6 +78,41 @@ async def test_all_tools_are_registered_with_the_ghidriff_prefix() -> None:
     start = next(tool for tool in tools if tool.name == "ghidriff_start_diff")
     assert "old_binary" in start.inputSchema["properties"]
     assert start.description
+
+
+async def test_diff_tools_expose_no_raw_engine_passthrough() -> None:
+    """Regression guard: raw CLI/JVM arguments must not be reachable from a tool.
+
+    ``--jvm-args -javaagent:...`` runs attacker-chosen Java in the analysis JVM,
+    so pass-through stays in the operator's environment instead.
+    """
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+
+    for name in ("ghidriff_start_diff", "ghidriff_run_diff"):
+        properties = tools[name].inputSchema["properties"]
+        assert "extra_args" not in properties, name
+        assert "jvm_args" not in properties, name
+        assert "no_symbols" in properties, name
+
+    everything = {
+        parameter for tool in tools.values() for parameter in tool.inputSchema["properties"]
+    }
+    assert "extra_args" not in everything
+    assert "jvm_args" not in everything
+
+
+async def test_no_symbols_reaches_the_request(state, fake_binaries) -> None:
+    state.jobs.runner = FakeRunner("success")
+    old, new = fake_binaries
+    started = decode(
+        await call(
+            "ghidriff_start_diff",
+            {"old_binary": str(old), "new_binaries": [str(new)], "no_symbols": True},
+        )
+    )
+    job = state.jobs.get(started["job_id"])
+    assert job.request.no_symbols is True
 
 
 async def test_settings_tool_reports_workspace(state, settings: Settings) -> None:

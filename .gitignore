@@ -41,6 +41,16 @@ symbols/
 gzfs/
 ghidra_projects/
 
+# Local secrets that must never be committed
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+.netrc
+credentials.json
+
 # Editor / OS noise
 .idea/
 .vscode/

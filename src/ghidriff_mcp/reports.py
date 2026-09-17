@@ -21,6 +21,11 @@ from typing import Any
 DIFF_SUFFIX = ".ghidriff"
 MAX_CODE_CHARS = 4000
 
+#: A pdiff describes an entire binary and is attacker-influenced input, so it is
+#: only parsed up to a size limit: parsing builds the whole structure in memory
+#: and the server keeps a small cache of them.
+MAX_PDIFF_BYTES = 512 * 1024 * 1024
+
 #: Interesting keys copied out of the Ghidra program metadata blob.
 _META_KEYS = (
     "Program Name",
@@ -126,13 +131,20 @@ def latest_artifacts(output_dir: Path) -> RunArtifacts | None:
     return max(artifacts, key=mtime)
 
 
-def load_pdiff(path: str | Path) -> dict[str, Any]:
+def load_pdiff(path: str | Path, *, max_bytes: int = MAX_PDIFF_BYTES) -> dict[str, Any]:
     path = Path(path)
     if not path.is_file():
         raise ReportError(f"pdiff json not found: {path}")
     if path.name.endswith(".matches.json"):
         raise ReportError(
             f"{path.name} is a matches file, not a pdiff. Pass the *.ghidriff.json file."
+        )
+    size = path.stat().st_size
+    if size > max_bytes:
+        raise ReportError(
+            f"{path.name} is {size / 1024 / 1024:.0f} MB, above the "
+            f"{max_bytes / 1024 / 1024:.0f} MB parse limit. Read the Markdown report "
+            "in pages with ghidriff_read_report instead, or diff a smaller binary."
         )
     try:
         with path.open("r", encoding="utf-8") as handle:
